@@ -22,14 +22,14 @@ class FACE:
         w_ij = np.zeros(int(m * (m - 1) / 2))
         edge_weights = []
         q = 0
-        for edge_from in range(m):
-            k = 1 + edge_from
-            for edge_to in range(k, m):
-                dist = cdist(self.data.values[edge_from].reshape(1, -1), self.data.values[edge_to].reshape(1, -1),
+        for node_from in range(m):
+            k = 1 + node_from
+            for node_to in range(k, m):
+                dist = cdist(self.data.values[node_from].reshape(1, -1), self.data.values[node_to].reshape(1, -1),
                              metric=self.dist_metric).squeeze()
                 if dist < self.dist_threshold:
-                    w_ij[q] = -np.log(self.kde((self.data.values[edge_from] + self.data.values[edge_to]) / 2) * dist)
-                edge_weights.append((edge_from, edge_to, {'weight': w_ij[q]}))
+                    w_ij[q] = -np.log(self.kde((self.data.values[node_from] + self.data.values[node_to]) / 2) * dist)
+                edge_weights.append((node_from, node_to, {'weight': w_ij[q]}))
                 q += 1
 
         nonzero_edge = []
