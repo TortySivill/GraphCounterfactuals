@@ -3,6 +3,10 @@ import pandas as pd
 from scipy.spatial.distance import cdist
 from scipy.stats import gaussian_kde
 import networkx as nx
+import logging
+import importlib as imp
+imp.reload(logging)
+logging.basicConfig(format='%(asctime)s %(levelname)s:%(message)s', level=logging.INFO, datefmt='%I:%M:%S')
 
 
 class BaseFACE:
@@ -10,63 +14,69 @@ class BaseFACE:
 
     Attributes:
         data: pandas DataFrame containing data (n_samples, n_features)
-        clf: binary classifier with a predict method
+        clf: classifier with a predict method and predict_proba if probabilities wanted
+        pred_threshold: prediction threshold for classification of CE
         dist_metric: metric for scipy.spatial.distance.cdist function
         dist_threshold: maximum distance between nodes for edge to be added
-        pred_threshold: prediction threshold for classification of CE
     """
-    def __init__(self, data, clf, dist_metric='euclidean', dist_threshold=1, pred_threshold=None):
-        """ Inits BaseFACE class
-        """
+
+    def __init__(
+            self,
+            data: pd.DataFrame,
+            clf,
+            pred_threshold: float = None,
+            bidirectional: bool = False,
+            dist_metric: str = 'euclidean',
+            dist_threshold: float = 1
+    ):
         self.data = data
         self.clf = clf
+        self.prediction = pd.DataFrame(self.clf.predict(data).astype(int), columns=['prediction'], index=data.index)
+        self.pred_threshold = pred_threshold
+        self.bidirectional = bidirectional
         self.dist_metric = dist_metric
         self.dist_threshold = dist_threshold
-        self.pred_threshold = pred_threshold
-        self.G = nx.Graph()
+        if bidirectional is False:
+            self.G = nx.Graph()
+        else:
+            self.G = nx.DiGraph()
+        self.add_nodes_and_edges()
 
-    def _threshold_function(self, x, y):
-        """Distance function that determines whether to add edge to graph
+    def _threshold_function(
+            self,
+            XA: np.ndarray,
+            XB: np.ndarray
+    ) -> np.ndarray:
+        """Function that determines whether to add edge to graph
 
         Args:
-            x: array
-            y: array
+            XA: array containing (n_samples, n_features)
+            XB: array containing (n_samples, n_features)
 
         Returns:
-            distance between points
+            binary matrix of size len(XA) * len(XB)
         """
-        dist = cdist(x, y, metric=self.dist_metric)
-        return dist
+        return cdist(XA, XB, metric=self.dist_metric) < self.dist_threshold
 
-    def _weight_function(self, x, y):
+    def _weight_function(
+            self,
+            XA: np.ndarray,
+            XB: np.ndarray,
+            threshold_matrix: np.ndarray
+    ) -> np.ndarray:
         """Distance or density function that calculates weights for graph
 
-        Default uses distance measure for weights but can be overridden for subclasses.
+        Default uses distance measure for weights but can be overridden in subclasses.
 
         Args:
-            x: point 1
-            y: point 2
+            XA: array containing (n_samples, n_features)
+            XB: array containing (n_samples, n_features)
+            threshold_matrix: binary matrix of size len(XA) * len(XB)
 
         Returns:
             weight between points
         """
-        return self._threshold_function(x, y)
-
-    def _calculate_weights(self, x, y):
-        """Calculate edge weights using on weight function if it meets distance and weight thresholds
-
-        Args:
-            x: point 1
-            y: point 2
-
-        Returns:
-            weight for edge between x and y
-        """
-        if self._threshold_function(x, y) < self.dist_threshold:
-            weight = self._weight_function(x, y)
-            return weight
-        else:
-            return None
+        return cdist(XA, XB, metric=self.dist_metric) * threshold_matrix
 
     def prune_nodes(self):
         """Method to remove nodes that do not meet a condition or threshold
@@ -74,7 +84,10 @@ class BaseFACE:
         Returns:
 
         """
-        pass
+        unconnected_nodes = [node for node, deg in self.G.degree if deg == 0]
+        self.G.remove_nodes_from(unconnected_nodes)
+        if len(unconnected_nodes) > 0:
+            logging.info(f' {len(unconnected_nodes)} nodes removed as unconnected. Graph now has {len(self.G.nodes)}')
 
     def prune_edges(self):
         """Method to remove edges that do not meet a threshold
@@ -84,122 +97,128 @@ class BaseFACE:
         """
         pass
 
-    def add_nodes_and_edges(self, new_point=False):
+    def add_nodes_and_edges(
+            self,
+            new_node: int = None
+    ):
         """Creates nodes and edges with weights.
 
         If new_point is False then creates nodes and edges (if threshold is met) for all data points.
         If now_point is True then creates 1 extra node and adds edges to all other nodes.
 
         Args:
-            new_point: boolean whether a new point has just been added to data
+            new_node: boolean whether a new point has just been added to data
 
         Returns:
 
         """
-
-        edge_weights = []
-
-        if new_point is False:
+        if new_node is None:
             self.G.add_nodes_from(list(self.data.index))
-            print(f'{self.G.number_of_nodes()} nodes have been added to graph.')
-            self.prune_nodes()
-
-            dist_matrix = pd.DataFrame(self._threshold_function(self.data.values, self.data.values),
-                                       index=self.data.index, columns=self.data.index)
-            weight_matrix = pd.DataFrame(self._weight_function(self.data.values, self.data.values),
-                                         index=self.data.index, columns=self.data.index)
-
-            nodes = list(self.G.nodes)
-            for i, node_from in enumerate(nodes[:-1]):
-                for node_to in nodes[i + 1:]:
-                    dist = dist_matrix.loc[node_from][node_to]
-                    if dist < self.dist_threshold:
-                        weight = weight_matrix.loc[node_from][node_to]
-                        edge_weights.append((node_from, node_to, {'weight': weight}))
-
-            self.G.add_edges_from(edge_weights)
-            print(f'{self.G.number_of_edges()} edges have been added to graph.')
-            self.prune_edges()
+            logging.info(f' Graph has been created with {self.G.number_of_nodes()} nodes.')
 
         else:
-            new_node = list(self.G.nodes)[-1] + 1
             self.G.add_node(new_node)
-            print(f'1 node has been added to graph.')
-            self.prune_nodes()
+            logging.info(f' 1 node has been added to graph. Graph now has {len(self.G.nodes())} nodes.')
 
-            dist_matrix = pd.DataFrame(self._threshold_function(self.data.values[-1].reshape(1, -1),
-                                                                self.data.values[:-1]),
-                                       index=[self.data.index[-1]], columns=self.data.index[:-1])
-            weight_matrix = pd.DataFrame(self._weight_function(self.data.values[-1].reshape(1, -1),
-                                                               self.data.values[:-1]),
-                                         index=[self.data.index[-1]], columns=self.data.index[:-1])
+        if new_node is None:
+            XA = self.data.loc[list(self.G.nodes)]
+            XB = self.data.loc[list(self.G.nodes)]
+        else:
+            XA = self.data.loc[list(self.G.nodes)].iloc[:-1]
+            XB = pd.DataFrame(self.data.loc[list(self.G.nodes)].iloc[-1]).T
 
-            for node_to in list(self.G.nodes)[:-1]:
-                dist = dist_matrix.loc[new_node][node_to]
-                if dist < self.dist_threshold:
-                    weight = weight_matrix.loc[new_node][node_to]
-                    edge_weights.append((new_node, node_to, {'weight': weight}))
+        threshold_matrix = self._threshold_function(XA.values, XB.values)
+        weight_matrix = pd.DataFrame(self._weight_function(XA.values, XB.values, threshold_matrix), index=XA.index,
+                                     columns=XB.index)
 
-            self.G.add_edges_from(edge_weights)
-            print(f'{len(edge_weights)} edges have been added.')
-            self.prune_edges()
+        edge_weights = []
+        for node_from in weight_matrix.index:
+            for node_to in weight_matrix.columns:
+                weight = weight_matrix.loc[node_from][node_to]
+                if weight != 0:
+                    edge_weights.append((node_from, node_to, {'weight': weight}))
 
-    def generate_counterfactual(self, instance):
+        if self.bidirectional is True:
+            for node_from in weight_matrix.columns:
+                for node_to in weight_matrix.index:
+                    weight = weight_matrix.loc[node_from][node_to]
+                    if weight != 0:
+                        edge_weights.append((node_from, node_to, {'weight': weight}))
+
+        self.G.add_edges_from(edge_weights)
+        logging.info(f' {len(edge_weights)} edges have been added to graph.')
+        self.prune_edges()
+        self.prune_nodes()
+
+    def generate_counterfactual(
+            self,
+            instance: np.ndarray,
+            target_class: int = None
+    ) -> (pd.DataFrame, pd.DataFrame):
         """Generates counterfactual to flip prediction of example using dijkstra shortest path for the graph created
 
         Args:
             instance: instance to generate CE
+            target_class: target class for CE, if none then opposite class for binary classification
 
         Returns:
             path to CE as instances from data as a pandas DataFrame
             probability of CE (if prediction_prob specified)
 
         """
-        if self.G.number_of_nodes() == 0:
-            self.add_nodes_and_edges()
-
+        logging.info(f' Generating counterfactual for instance {instance} using {self.__class__}.')
         instance = instance.reshape(1, -1)
-        target = int(abs(self.clf.predict(instance) - 1))
-        target_data = self.data[self.clf.predict(self.data) == target]
-        target_nodes = list(set(list(self.G.nodes())).intersection(target_data.index))
+        assert target_class != self.clf.predict(instance), "Target class is the same as the current prediction."
 
         example_in_data = self.data[self.data.eq(instance)].dropna()
         if len(example_in_data) > 0:
             start_node = example_in_data.iloc[0].name
         else:
-            start_node = self.data.iloc[-1].name + 1
+            start_node = list(self.G.nodes)[-1] + 1
             self.data = self.data.append(pd.Series(instance.squeeze(), index=list(self.data), name=start_node))
+            self.prediction = self.prediction.append(pd.Series(self.clf.predict(instance).astype(int),
+                                                               index=list(self.prediction), name=start_node))
+            self.add_nodes_and_edges(start_node)
 
-            self.add_nodes_and_edges(new_point=True)
+        assert start_node in list(self.G.nodes), "Instance does not meet thresholds."
+        connected_nodes = list(nx.node_connected_component(self.G, start_node))
 
-        assert start_node in list(self.G.nodes), "Instance does not meet thresholds"
+        if target_class is None:
+            target_class = np.logical_not(self.clf.predict(instance)).astype(int)
+        target_nodes = self.data.loc[connected_nodes][(self.prediction.loc[connected_nodes] == target_class).values]\
+            .index
 
-        _, path = nx.multi_source_dijkstra(self.G, target_nodes, target=start_node)
-        path = path[::-1]
+        assert len(target_nodes) > 0, "No target nodes that meet thresholds."
+        logging.info(f' {len(target_nodes)} potential counterfactuals.')
+        # TODO: show new graph containing nodes and edges that connect start node to the target_class node
+        #  (all paths or maybe shortest n paths)
+
+        lengths = np.zeros(len(target_nodes))
+        paths = []
+        for i, target_node in enumerate(target_nodes):
+            length, path = nx.single_source_dijkstra(self.G, start_node, target_node)
+            lengths[i] = length
+            paths.append(path)
+        sort_shortest = lengths.argsort()
+
+        i = 0
+        if self.pred_threshold is not None:
+            pred_probs = self.clf.predict_proba(self.data.loc[paths[sort_shortest[0]][-1]].values.reshape(1, -1))\
+                .squeeze()[target_class]
+            while pred_probs[-1] < self.pred_threshold:
+                assert i < len(target_nodes), "Prediction threshold not met."
+                pred_probs = self.clf.predict_proba(self.data.loc[paths[sort_shortest[i]][-1]].values.reshape(1, -1))\
+                    .squeeze()[target_class]
+                i += 1
+
+        path_df = self.data.loc[paths[sort_shortest[i-1]]].reset_index(drop=True)
+        pred_df = self.prediction.loc[paths[sort_shortest[i-1]]]
 
         if self.pred_threshold is not None:
-            pred_prob = self.clf.predict_proba(target_data.loc[path[-1]].values.reshape(1, -1)).squeeze()[target]
+            prob = np.take_along_axis(self.clf.predict_proba(path_df), pred_df.values, axis=1)
+            pred_df['probability'] = prob
 
-            while pred_prob < self.pred_threshold:
-                target_data = target_data.drop(path[-1])
-                target_nodes = list(set(list(self.G.nodes())).intersection(target_data.index))
-                assert len(target_nodes) > 0, "Target nodes do not meet thresholds"
-                _, path = nx.multi_source_dijkstra(self.G, target_nodes, target=start_node)
-                path = path[::-1]
-                pred_prob = self.clf.predict_proba(target_data.loc[path[-1]].values.reshape(1, -1)).squeeze()[target]
-
-            path_df = self.data.loc[path].reset_index(drop=True)
-            pred = self.clf.predict(path_df).astype(int).reshape(-1, 1)
-            prob = np.take_along_axis(self.clf.predict_proba(path_df), pred, axis=1)
-            prob_df = pd.DataFrame(np.concatenate((pred, prob), axis=1), columns=['prediction', 'probability'])
-
-            return path_df, prob_df
-
-        path_df = self.data.loc[path].reset_index(drop=True)
-        pred = self.clf.predict(path_df).astype(int).reshape(-1, 1)
-        prob_df = pd.DataFrame(pred, columns=['prediction'])
-
-        return path_df, prob_df
+        return path_df, pred_df
 
 
 class FACE(BaseFACE):
@@ -211,26 +230,49 @@ class FACE(BaseFACE):
         density_threshold: low density threshold to prune nodes from graph
 
     """
-    def __init__(self, data, clf, dist_metric='euclidean', dist_threshold=1, pred_threshold=None, kde=gaussian_kde,
-                 density_threshold=0.01):
-        super().__init__(data, clf, dist_metric, dist_threshold, pred_threshold)
-        """Inits FACE class
-        """
+
+    def __init__(
+            self,
+            data: pd.DataFrame,
+            clf,
+            pred_threshold: float = None,
+            bidirectional: bool = False,
+            dist_metric: str = 'euclidean',
+            dist_threshold: float = 1,
+            kde=gaussian_kde,
+            density_threshold: float = 0.01):
         self.kde = kde(data.T)
         self.density_threshold = density_threshold
+        super().__init__(
+            data,
+            clf,
+            pred_threshold,
+            bidirectional,
+            dist_metric,
+            dist_threshold,
+        )
 
-    def _weight_function(self, x, y):
+    def _weight_function(
+            self,
+            XA: np.ndarray,
+            XB: np.ndarray,
+            threshold_matrix: np.ndarray
+    ):
         """Weights based on kernel-density estimator
 
         Args:
-            x: point 1
-            y: point 2
+            XA: array containing (n_samples, n_features)
+            XB: array containing (n_samples, n_features)
+            threshold_matrix: binary matrix of size len(XA) * len(XB)
 
         Returns:
-            weight for edge between points
+            weight between points
         """
-        dist = self._threshold_function(x, y)
-        weight = -np.log(self.kde((x.T + y.T) / 2) * (dist + 1e-10))
+        dist = cdist(XA, XB, metric=self.dist_metric) * threshold_matrix
+        XA_dup = np.repeat(XA, len(XB), axis=0)
+        XB_dup = np.repeat(XB, len(XA), axis=0)
+        weight = -np.log(self.kde((XA_dup.T + XB_dup.T) / 2).reshape(len(XA), len(XB)) * (dist + np.finfo(float).eps))
+        weight = np.where(weight > 38, 0, weight)
         return weight
 
     def prune_nodes(self):
@@ -239,8 +281,13 @@ class FACE(BaseFACE):
         Returns:
 
         """
-        low_density = self.data[self.kde(self.data.T) < self.density_threshold].index
+        unconnected_nodes = [node for node, deg in self.G.degree if deg == 0]
+        self.G.remove_nodes_from(unconnected_nodes)
+        if len(unconnected_nodes) > 0:
+            logging.info(f' {len(unconnected_nodes)} nodes removed as unconnected. Graph now has {len(self.G.nodes)}')
+
+        low_density = self.data.loc[list(self.G.nodes)][self.kde(self.data.loc[list(self.G.nodes)].T)
+                                                        < self.density_threshold].index
         self.G.remove_nodes_from(low_density)
-        self.data = self.data[self.data.index.isin(list(self.G.nodes()))]
         if len(low_density) > 0:
-            print(f'{len(low_density)} nodes removed due to low density.')
+            logging.info(f' {len(low_density)} nodes removed due to low density. Graph now has {len(self.G.nodes)}')
