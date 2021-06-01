@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 from scipy.spatial.distance import cdist
 import networkx as nx
 import logging
@@ -40,6 +41,7 @@ class BaseFACE:
         else:
             self.G = nx.DiGraph()
         self.add_nodes_and_edges()
+        self.connected_nodes = None
 
     def _threshold_function(
             self,
@@ -180,17 +182,15 @@ class BaseFACE:
             self.add_nodes_and_edges(start_node)
 
         assert start_node in list(self.G.nodes), "Instance does not meet thresholds."
-        connected_nodes = list(nx.node_connected_component(self.G, start_node))
+        self.connected_nodes = list(nx.node_connected_component(self.G, start_node))
 
         if target_class is None:
             target_class = np.logical_not(self.clf.predict(instance)).astype(int)
-        target_nodes = self.data.loc[connected_nodes][(self.prediction.loc[connected_nodes] == target_class).values]\
-            .index
+        target_nodes = self.data.loc[self.connected_nodes][(self.prediction.loc[self.connected_nodes] == target_class)
+                                                            .values].index
 
         assert len(target_nodes) > 0, "No target nodes that meet thresholds."
         logging.info(f' {len(target_nodes)} potential counterfactuals.')
-        # TODO: show new graph containing nodes and edges that connect start node to the target_class node
-        #  (all paths or maybe shortest n paths)
 
         lengths = np.zeros(len(target_nodes))
         paths = []
@@ -210,7 +210,7 @@ class BaseFACE:
                     .squeeze()[target_class]
                 i += 1
 
-        path_df = self.data.loc[paths[sort_shortest[i-1]]].reset_index(drop=True)
+        path_df = self.data.loc[paths[sort_shortest[i-1]]]
         pred_df = self.prediction.loc[paths[sort_shortest[i-1]]]
 
         if self.pred_threshold is not None:
@@ -218,3 +218,25 @@ class BaseFACE:
             pred_df['probability'] = prob
 
         return path_df, pred_df
+
+    def plot_path(
+            self,
+            path: list[int]
+    ):
+        """Plots the subgraph of nodes that are connected to the instance and shows the path to the CE
+
+        Args:
+            path: list of nodes of the shortest path
+
+        Returns:
+
+        """
+        fig, ax = plt.subplots(figsize=(12, 12))
+        subG = self.G.subgraph(self.connected_nodes)
+        pos = nx.drawing.nx_agraph.graphviz_layout(subG, prog="neato")
+        nx.draw_networkx(subG, pos=pos, with_labels=False, node_size=200,
+                         node_color=[["purple", "y"][self.prediction.loc[node].item()] for node in self.connected_nodes]
+                         )
+        path_edges = list(zip(path[:-1], path[1:]))
+        nx.draw_networkx_edges(subG, pos=pos, edgelist=path_edges, edge_color='r', width=3)
+        fig.show()
