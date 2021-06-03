@@ -35,22 +35,27 @@ class UDM:
         for r in range(self.d): # Iterate through feature pairs.
             for s in range(self.d):
 
+                print(ordinal[r] and ordinal[s])
+
                 # === Calculate interdependence measure R. ===
                 C = np.zeros((n[r], n[s]), dtype=int); C_eq = 0; C_diff = 0      
                 for i in range(N): # Iterate through samples.
                     C[X[i,r], X[i,s]] += 1 # Counts for feature pairings.
                     if ordinal[r] and ordinal[s]: # If both r and s are ordinal.   
                         for j in range(i): # Iterate through samples before i.
-                            if X[i,r] == X[j,r] and X[i,s] == X[j,s]: C_eq += 1 # i,j equal on both features.
-                            elif (X[i,r] > X[j,r] and X[i,s] > X[j,s]) or (X[i,r] < X[j,r] and X[i,s] < X[j,s]): C_diff += 1 # Direction of difference is the same.
+                            # if X[i,r] == X[j,r] and X[i,s] == X[j,s]: C_eq += 1 # i,j equal on both features.
+                            if (X[i,r] > X[j,r] and X[i,s] > X[j,s]) or (X[i,r] < X[j,r] and X[i,s] < X[j,s]): C_diff += 1 # Direction of difference is the same.
                             elif (X[i,r] > X[j,r] and X[i,s] < X[j,s]) or (X[i,r] < X[j,r] and X[i,s] > X[j,s]): C_diff -= 1 # Direction of difference is opposite.
                         C_diff = abs(C_diff) # Just need absolute value of net difference.  
                 if not (ordinal[r] and ordinal[s]): # If at least one of r and s is nominal.
-                    C_eq = np.maximum(C-1, 0).sum() # Quick way of computing number of sample pairs equal on both features.
                     for t in range(n[r]):
                         for h in range(t):
                             for g in range(n[s]):
                                 for u in range(g): C_diff += abs((C[t,g] * C[h,u]) - (C[t,u] * C[h,g]))
+                
+                print("X")
+                
+                C_eq = (C * np.maximum(C-1, 0)).sum() / 2 # Quick way of computing number of sample pairs equal on both features.
                 self.R[r,s] = (C_eq + C_diff) / Z # Final calculation to get R.     
 
                 # === Calculate entropy-based distance psi. ===
