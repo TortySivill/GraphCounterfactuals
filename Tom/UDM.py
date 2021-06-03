@@ -22,7 +22,9 @@ class UDM:
         """
         # === Collect measurements from dataset.===
         N, self.d = X.shape # Number of samples and features.
-        n = [len(np.unique(X[:,r])) for r in range(self.d)] # Number of categories per feature.
+        categories = [np.unique(X[:,r]) for r in range(self.d)] 
+        n = [len(c) for c in categories] # Number of categories per feature.
+        for r in range(self.d): assert (categories[r] == range(n[r])).all(), "Categories must be 0,1,...n[r] for each r."
         Z = N*(N-1)/2 # Used for normalisation.
 
         # === Initialise data structures that define the distance metric. ===
