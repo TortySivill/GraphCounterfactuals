@@ -36,34 +36,17 @@ class UDM:
             for s in range(self.d):
  
                 # === Calculate interdependence measure R. ===
-                C = np.zeros((n[r], n[s]), dtype=int); C_diff = 0
-                for i in range(N): # Iterate through samples.
-                    C[X[i,r], X[i,s]] += 1 # Counts for feature pairings.
-                    if ordinal[r] and ordinal[s]: # If both r and s are ordinal.   
-                        for j in range(i): # Iterate through samples before i.
-                            if (X[i,r] > X[j,r] and X[i,s] > X[j,s]) or (X[i,r] < X[j,r] and X[i,s] < X[j,s]): C_diff += 1 # Direction of difference is the same.
-                            elif (X[i,r] > X[j,r] and X[i,s] < X[j,s]) or (X[i,r] < X[j,r] and X[i,s] > X[j,s]): C_diff -= 1 # Direction of difference is opposite.
-                assert C.sum() == N
-                C_diff = abs(C_diff) # Just need absolute value of net difference.  
-                C_eq = (C * np.maximum(C-1, 0)).sum() / 2 # Quick way of computing number of sample pairs equal on both features.
+                C = np.zeros((n[r], n[s]), dtype=int)
+                for i in range(N): C[X[i,r], X[i,s]] += 1 # Counts for feature combinations.
+                C_eq = (C * np.maximum(C-1, 0)).sum() / 2 # Number of equal-concordant sample pairs. 
+                C_diff = 0 # Net difference between positive- and negative-concordant sample pairs.
                 if ordinal[r] and ordinal[s]: # If both r and s are ordinal.
-                    C_diff_old = C_diff
-                    C_diff = 0
                     for t in range(n[r]-1):
-                        Cul = 0; Cuu = C[t+1:,1:].sum() # Counters for sum of quadrants of C matrix relative to current t, g.             
+                        Cul = 0; Cuu = C[t+1:,1:].sum() # Sums of quadrants of C matrix below current t, g.             
                         for g in range(n[s]):
                             C_diff += C[t,g] * (Cuu - Cul)                            
-                            if g < n[s]-1: 
-                                Cul += C[t+1:,g].sum()
-                                Cuu -= C[t+1:,g+1].sum()
-                        assert Cuu == 0
-                        assert Cul == C[t+1:,:-1].sum()
-                    C_diff = abs(C_diff)
-
-                    assert C_diff_old == C_diff
-                    print(r, s, C_diff_old, C_diff)
-                    print()
-
+                            if g < n[s]-1: Cul += C[t+1:,g].sum(); Cuu -= C[t+1:,g+1].sum()
+                    C_diff = abs(C_diff) # Just need absolute value of net difference.  
                 else: # If at least one of r and s is nominal.
                     for t in range(n[r]):
                         for h in range(t):

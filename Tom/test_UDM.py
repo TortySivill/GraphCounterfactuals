@@ -6,26 +6,16 @@ np.set_printoptions(precision=5, suppress=True, edgeitems=30, linewidth=100000)
 from joblib import dump
 import matplotlib.pyplot as plt
 
-df = pd.read_csv("Tom/table3.csv")
-ordinal = ["O" in c for c in df.columns]
-X = df.values
+# df = pd.read_csv("Tom/table3.csv")
+# ordinal = ["O" in c for c in df.columns]
+# X = df.values
 
-# df = pd.read_csv("Tom/adult.csv", index_col=0)
-# ordinal = [True, False, True, False, False, False, True]
-# X = df.values[:,:-1] # Ignore compensation column.
+df = pd.read_csv("Tom/adult.csv", index_col=0)
+ordinal = [True, False, True, False, False, False, True]
+X = df.values[:,:-1] # Ignore compensation column.
 
-# print(df.head())
-# print(df.nunique())
-
-# for var in df.columns:
-#     print(var)
-#     print(df[var].value_counts())
-
-udm = UDM(X[:502], ordinal) # 502 is minimum needed to get an example of every category.
-
-# udm = UDM(X, ordinal) 
-
-# dump(udm, "Tom/adult_udm.joblib")
+udm = UDM(X, ordinal) 
+dump(udm, "Tom/adult_udm.joblib")
 
 # print(udm.R)
 # print(udm.phi[0])
